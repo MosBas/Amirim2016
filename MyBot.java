@@ -12,22 +12,30 @@ import pirates.game.Treasure;
 import pirates.game.Pirate;
 import pirates.game.PirateBot;
 import pirates.game.PirateGame;
+import java.util.Random;
 
 public class MyBot implements PirateBot {
+
+	final int MOVES_FOR_ATTACKER = 3;
+	Random rand = new Random();
+
 	@Override
 	public void doTurn(PirateGame game) {
-		int movesBank = game.getActionsPerTurn();
+		int movesBank = game.getActionsPerTurn(); // Number of moves for this
+													// turn
 
-		List<Pirate> alreadyshot = new ArrayList<Pirate>();
-		List<Pirate> l1 = game.myPiratesWithTreasures();
-		List<Pirate> l2 = game.myPiratesWithoutTreasures();
+		List<Pirate> pWithTreasures = game.myPiratesWithTreasures();
+		List<Pirate> pWithoutTreasures = game.myPiratesWithoutTreasures();
 
-		for (Pirate p : l2)
+		List<Pirate> unableToShoot = new ArrayList<Pirate>();
+
+		for (Pirate p : pWithoutTreasures) // Fills unableToShoot list
 			if (p.getReloadTurns() != 0)
-				alreadyshot.add(p);
+				unableToShoot.add(p);
 
-		List<Pirate> pirates = new ArrayList<>(l1);
-		pirates.addAll(l2);
+		// List pirates has all the pirates
+		List<Pirate> pirates = new ArrayList<>(pWithTreasures);
+		pirates.addAll(pWithoutTreasures);
 
 		List<Location> takenLocations = new ArrayList<Location>();
 		List<Location> occupiedTargets = new ArrayList<Location>();
@@ -71,72 +79,75 @@ public class MyBot implements PirateBot {
 			Pirate attacker = null;
 			while (!pirates.isEmpty()) {
 				boolean goanyway = false;
-				int move = 0;
-				Pirate pirate1 = pirates.remove(0);
-				Location location = null;
-				Pirate ClosestEnemy = findClosestShip(game, pirate1, game.enemySoberPirates());
-				Pirate closestEnemyWithTreasure = findClosestShip(game, pirate1, game.enemyPiratesWithTreasures());
-				String[] power = pirate1.getPowerups();
+				int moves = 0;
+
+				Pirate currPirate = pirates.remove(0);
+
+				Location destination = null;
+
+				Pirate closestEnemy = findClosestShip(game, currPirate, game.enemySoberPirates());
+				Pirate closestEnemyWithTreasure = findClosestShip(game, currPirate, game.enemyPiratesWithTreasures());
+
+				String[] power = currPirate.getPowerups();
 				Pirate enemyPirate = enemyWithPowerup(game);
 
-				if (pirate1.getTurnsToSober() == 0 && !pirate1.isLost()) {
-					if (pirate1.getReloadTurns() == 0 && (ClosestEnemy != null && game.inRange(pirate1, ClosestEnemy))
-							&& !pirate1.hasTreasure()) {
-						game.debug("Pirate " + pirate1.getId() + " is attacking enemy " + ClosestEnemy.getId());
-						game.attack(pirate1, ClosestEnemy);
-					} else if (ClosestEnemy != null && ClosestEnemy.getReloadTurns() == 0 && !ClosestEnemy.hasTreasure()
-							&& pirate1.getDefenseReloadTurns() == 0 && game.inRange(pirate1, ClosestEnemy)) {
-						game.defend(pirate1);
-						game.debug("Pirate " + pirate1.getId() + " is defending from enemy " + ClosestEnemy.getId());
-					}
+				if (currPirate.getTurnsToSober() == 0 && !currPirate.isLost()) {
+					if (closestEnemy != null && closestEnemy.getReloadTurns() == 0 && !closestEnemy.hasTreasure()
+							&& currPirate.getDefenseReloadTurns() == 0 && game.inRange(currPirate, closestEnemy)) {
+						// If capable of defending from nearby possibly
+						// aggressive enemy
+						game.defend(currPirate);
+						game.debug("[Pirate" + currPirate.getId() + "] is defending from [Enemy" + closestEnemy.getId()
+								+ "]");
+					} else if (currPirate.getReloadTurns() == 0 && closestEnemy != null
+							&& game.inRange(currPirate, closestEnemy) && !currPirate.hasTreasure()) {
+						game.debug(
+								"[Pirate" + currPirate.getId() + "] is attacking [Enemy" + closestEnemy.getId() + "]");
+						game.attack(currPirate, closestEnemy);
+					} else {
+						if (currPirate.hasTreasure()) { // If has treasure
+							game.debug("[Pirate" + currPirate.getId() + "] has treasure and is going home");
+							destination = currPirate.getInitialLocation();
+							moves = currPirate.getCarryTreasureSpeed();
+						} else if (currPirate.getReloadTurns() == 0
+								&& (attacker == null || game.treasures().isEmpty())) { // Creates
+																						// attacker
+							attacker = currPirate;
+							destination = closestEnemy.getLocation();
+							game.debug("[Pirate" + currPirate.getId() + "] is going to attack [Enemy "
+									+ closestEnemy.getId() + "]");
+							moves = Math.min(Math.min(MOVES_FOR_ATTACKER, movesBank),
+									game.distance(currPirate.getLocation(), destination));
+						} else if (!game.powerups().isEmpty()) { // If there are
+																	// power ups
+							List<Powerup> powerUps = game.powerups();
 
-					else {
-						if (pirate1.hasTreasure()) {
-							game.debug("Pirate " + pirate1.getId() + " has treasure and is going home");
-							location = pirate1.getInitialLocation();
-							move = pirate1.getCarryTreasureSpeed();
-						} else if (pirate1.getReloadTurns() == 0 && (attacker == null || game.treasures().isEmpty())) {
-							attacker = pirate1;
-							location = ClosestEnemy.getLocation();
-							game.debug(
-									"Pirate " + pirate1.getId() + " is going to attack enemy " + ClosestEnemy.getId()); // we're
-																														// limiting
-																														// to
-																														// only
-																														// one
-																														// attacker
-																														// per
-																														// turn
-							move = Math.min(Math.min(3, movesBank), game.distance(pirate1.getLocation(), location));
-						} else if (!game.powerups().isEmpty()) {
-							List<Powerup> p = game.powerups();
+							while (!powerUps.isEmpty()) { // While list not
+															// empty
+								Powerup currPowerUp = powerUps.remove(0);
+								Pirate closestToPowerUp = closestToPowerup(currPowerUp, game);
 
-							while (!p.isEmpty()) {
-								Powerup power2 = p.remove(0);
-								Pirate min = closestToPowerup(power2, game);
-
-								if (min.compareTo(pirate1) == 0)
-									location = power2.getLocation();
+								if (closestToPowerUp.compareTo(currPirate) == 0)
+									destination = currPowerUp.getLocation();
 							}
-						} else {
+						} else { // Takes a treasure
 							List<Treasure> closesTreasure = game.treasures();
-							Treasure closestTreasure = findClosestTreasure(game, pirate1, closesTreasure);
+							Treasure closestTreasure = findBestTreasure(game, currPirate, closesTreasure);
 
 							if (closestTreasure != null) {
-								location = closestTreasure.getLocation();
-								move = movesBank - game.myPiratesWithTreasures().size();
+								destination = closestTreasure.getLocation();
+								moves = movesBank - game.myPiratesWithTreasures().size();
 							}
 						}
 					}
 
-					movesBank -= move;
-					game.debug("movesBank = " + movesBank);
+					movesBank -= moves;
 
-					if (movesBank > 0 && pirates.isEmpty() && !pirate1.hasTreasure())
-						move = move + movesBank;
+					if (movesBank > 0 && pirates.isEmpty() && !currPirate.hasTreasure())
+						moves = moves + movesBank;
 
-					if (location != null) {
-						List<Location> possibleLocations = game.getSailOptions(pirate1, location, move);
+					if (destination != null) {
+						List<Location> possibleLocations = game.getSailOptions(currPirate, destination, moves);
 
 						for (Location loc : possibleLocations)
 							if (!takenLocations.contains(loc) && (!game.isOccupied(loc) || goanyway)
@@ -146,12 +157,13 @@ public class MyBot implements PirateBot {
 						Location loc = findSafestLocation(game, takenLocations, game.allEnemyPirates());
 
 						if (loc != null) {
-							game.setSail(pirate1, loc);
-							game.debug(
-									"Pirates " + pirate1.getId() + " is going " + move + " steps to " + loc.toString());
+							game.setSail(currPirate, loc);
+							game.debug("Pirates " + currPirate.getId() + " is going " + moves + " steps to "
+									+ loc.toString());
 							occupiedTargets.add(loc);
 						}
 
+						game.debug("movesBank = " + movesBank);
 					}
 				}
 			}
@@ -159,131 +171,140 @@ public class MyBot implements PirateBot {
 
 		else {
 			Pirate attacker = null;
-
+			
+			List<Pirate> enemiesUnderAttack = new ArrayList<>();
+			
 			while (!pirates.isEmpty()) {
 				boolean goanyway = false;
 				int move = 0;
-				Pirate pirate1 = pirates.remove(0);
+				
+				List<Pirate> sober = new ArrayList<>();
+				for (Pirate p : game.enemySoberPirates())
+					if (!enemiesUnderAttack.contains(p))
+						sober.add(p);
+				
+				List<Pirate> soberWithTreasure = new ArrayList<>();
+				for (Pirate p : game.enemyPiratesWithTreasures())
+					if (!enemiesUnderAttack.contains(p))
+						soberWithTreasure.add(p);
+				
+				Pirate currPirate = pirates.remove(0);
 				Location location = null;
-				Pirate ClosestEnemy = findClosestShip(game, pirate1, game.enemySoberPirates());
-				Pirate closestEnemyWithTreasure = findClosestShip(game, pirate1, game.enemyPiratesWithTreasures());
+				Pirate closestEnemy = findClosestShip(game, currPirate, sober);
+				Pirate closestEnemyWithTreasure = findClosestShip(game, currPirate, soberWithTreasure);
 				Pirate enemyPirate = enemyWithPowerup(game);
 
-				if (pirate1.getTurnsToSober() == 0 && !pirate1.isLost()) {
-					if (pirate1.getReloadTurns() == 0 && (ClosestEnemy != null && game.inRange(pirate1, ClosestEnemy))
-							&& !pirate1.hasTreasure()) {
-						game.debug("Pirate " + pirate1.getId() + " is attacking enemy " + ClosestEnemy.getId());
-						game.attack(pirate1, ClosestEnemy);
-					} else if (ClosestEnemy != null && ClosestEnemy.getReloadTurns() == 0 && !ClosestEnemy.hasTreasure()
-							&& pirate1.getDefenseReloadTurns() == 0 && game.inRange(pirate1, ClosestEnemy)) {
-						game.defend(pirate1);
-						game.debug("Pirate " + pirate1.getId() + " is defending from enemy " + ClosestEnemy.getId());
+				if (currPirate.getTurnsToSober() == 0 && !currPirate.isLost()) {
+					if (closestEnemy != null && closestEnemy.getReloadTurns() == 0 && !closestEnemy.hasTreasure()
+							&& currPirate.getDefenseReloadTurns() == 0 && game.inRange(currPirate, closestEnemy)
+							&& (currPirate.getReloadTurns() == 0
+									&& (closestEnemy != null && game.inRange(currPirate, closestEnemy))
+									&& !currPirate.hasTreasure())) {
+
+						int choice = rand.nextInt(2);
+						if (choice == 0) {
+							game.debug("Pirate " + currPirate.getId() + " is attacking enemy " + closestEnemy.getId());
+							game.attack(currPirate, closestEnemy);
+							enemiesUnderAttack.add(closestEnemy);
+						} else {
+							game.defend(currPirate);
+							game.debug("Pirate " + currPirate.getId() + " is defending from enemy "
+									+ closestEnemy.getId());
+						}
+					} else if (closestEnemy != null && closestEnemy.getReloadTurns() == 0 && !closestEnemy.hasTreasure()
+							&& currPirate.getDefenseReloadTurns() == 0 && game.inRange(currPirate, closestEnemy)) {
+						game.defend(currPirate);
+						game.debug("Pirate " + currPirate.getId() + " is defending from enemy " + closestEnemy.getId());
+					} else if (currPirate.getReloadTurns() == 0
+							&& (closestEnemy != null && game.inRange(currPirate, closestEnemy))
+							&& !currPirate.hasTreasure()) {
+						game.debug("Pirate " + currPirate.getId() + " is attacking enemy " + closestEnemy.getId());
+						game.attack(currPirate, closestEnemy);
+						enemiesUnderAttack.add(closestEnemy);
+					} else if (closestEnemy != null && closestEnemy.getReloadTurns() == 0 && !closestEnemy.hasTreasure()
+							&& currPirate.getDefenseReloadTurns() == 0 && game.inRange(currPirate, closestEnemy)) {
+						game.defend(currPirate);
+						game.debug("Pirate " + currPirate.getId() + " is defending from enemy " + closestEnemy.getId());
 					} else if (enemyPirate != null) {
 						Pirate kamikaze = findClosestShip(game, enemyPirate, game.myPirates());
 						goanyway = true;
-						if (kamikaze.compareTo(pirate1) == 0) {
+						if (kamikaze.compareTo(currPirate) == 0) {
 							location = enemyPirate.getLocation();
-							game.debug(
-									"Pirate " + pirate1.getId() + " is intiiatng kamikaze on  " + enemyPirate.getId()); // we're
-																														// limiting
-																														// to
-																														// only
-																														// one
-																														// attacker
-																														// per
-																														// turn
-							move = Math.min(Math.min(4, movesBank), game.distance(pirate1.getLocation(), location));
+							game.debug("Pirate " + currPirate.getId() + " is intiiatng kamikaze on  "
+									+ enemyPirate.getId()); // turn
+							move = Math.min(Math.min(4, movesBank), game.distance(currPirate.getLocation(), location));
 						}
 					} else {
-						if (pirate1.hasTreasure()) {
-							game.debug("Pirate " + pirate1.getId() + " has treasure and is going home");
-							location = pirate1.getInitialLocation();
-							move = pirate1.getCarryTreasureSpeed();
+						if (currPirate.hasTreasure()) {
+							game.debug("Pirate " + currPirate.getId() + " has treasure and is going home");
+							location = currPirate.getInitialLocation();
+							move = currPirate.getCarryTreasureSpeed();
 						} else if (!game.powerups().isEmpty()) {
 							List<Powerup> p = game.powerups();
 							while (!p.isEmpty()) {
 								Powerup power2 = p.remove(0);
 								Pirate min = closestToPowerup(power2, game);
-								if (min.compareTo(pirate1) == 0) {
+								if (min.compareTo(currPirate) == 0) {
 									location = power2.getLocation();
 									move = Math.min(Math.min(4, movesBank),
-											game.distance(pirate1.getLocation(), location));
-									game.debug("Pirate " + pirate1.getId() + " is getting the powerup");
+											game.distance(currPirate.getLocation(), location));
+									game.debug("Pirate " + currPirate.getId() + " is getting the powerup");
 								}
 							}
-						} else if (pirate1.getReloadTurns() == 0 && (attacker == null || game.treasures().isEmpty())) {
-							attacker = pirate1;
-							location = ClosestEnemy.getLocation();
-							game.debug(
-									"Pirate " + pirate1.getId() + " is going to attack enemy " + ClosestEnemy.getId()); // we're
-																														// limiting
-																														// to
-																														// only
-																														// one
-																														// attacker
-																														// per
-																														// turn
-							move = Math.min(Math.min(3, movesBank), game.distance(pirate1.getLocation(), location));
-						} else if (!alreadyshot.isEmpty() && pirate1.getReloadTurns() != 0
-								&& closestEnemyWithTreasure != null && !pirate1.hasTreasure()) {
+						} else if (currPirate.getReloadTurns() == 0 && (attacker == null || game.treasures().isEmpty())
+								&& closestEnemy != null) {
+							attacker = currPirate;
+							location = closestEnemy.getLocation();
+							game.debug("Pirate " + currPirate.getId() + " is going to attack enemy "
+									+ closestEnemy.getId());
+							enemiesUnderAttack.add(closestEnemy);
+							move = Math.min(Math.min(3, movesBank), game.distance(currPirate.getLocation(), location));
+						} else if (!unableToShoot.isEmpty() && currPirate.getReloadTurns() != 0
+								&& closestEnemyWithTreasure != null && !currPirate.hasTreasure()) {
 							location = enemyNextLocation(game, closestEnemyWithTreasure,
 									closestEnemyWithTreasure.getInitialLocation());
-							move = Math.min(Math.min(3, movesBank), game.distance(pirate1.getLocation(), location));
+							enemiesUnderAttack.add(closestEnemyWithTreasure);
+							move = Math.min(Math.min(3, movesBank), game.distance(currPirate.getLocation(), location));
 							goanyway = true;
-							game.debug("Pirate " + pirate1.getId() + " is going to sink enemy "
+							game.debug("Pirate " + currPirate.getId() + " is going to sink enemy "
 									+ closestEnemyWithTreasure.getId());
 						}
 
-						/*
-						 * else if (game.myDrunkPirates().size() > 0) {
-						 * List<Pirate> p = new ArrayList<Pirate>(); for (Pirate
-						 * pir : game.myPiratesWithoutTreasures()) if
-						 * (pir.getTurnsToSober() == 0) p.add(pir); for (int i =
-						 * 0 ; i < game.myDrunkPirates().size(); i++) if
-						 * (pirate1.compareTo(findClosestShip(game,
-						 * game.myDrunkPirates().get(i), p)) == 0) { goanyway =
-						 * true; location =
-						 * game.myDrunkPirates().get(i).getLocation(); move =
-						 * Math.min(Math.min(2, movesBank),
-						 * game.distance(pirate1.getLocation(), location));
-						 * game.debug("Pirate " + pirate1.getId() +
-						 * " is going to help " +
-						 * game.myDrunkPirates().get(i).getId()); } }
-						 */
-						
 						else {
 							List<Treasure> closesTreasure = game.treasures();
-							Treasure closestTreasure = findClosestTreasure(game, pirate1, closesTreasure);
-							
+							Treasure closestTreasure = findBestTreasure(game, currPirate, closesTreasure);
+
 							if (closestTreasure != null) {
 								location = closestTreasure.getLocation();
-								move = Math.min(Math.min(3, movesBank), game.distance(pirate1.getLocation(), location));
+								move = Math.min(Math.min(3, movesBank),
+										game.distance(currPirate.getLocation(), location));
 							}
 						}
 					}
 
 					movesBank -= move;
 					game.debug("movesBank = " + movesBank);
-					
-					if (movesBank > 0 && pirates.isEmpty() && !pirate1.hasTreasure()) {
+
+					if (movesBank > 0 && pirates.isEmpty() && !currPirate.hasTreasure()) {
 						move = move + movesBank;
 						game.debug("movesBank = " + movesBank);
 					}
-					
+
 					if (location != null) {
-						List<Location> possibleLocations = game.getSailOptions(pirate1, location, move);
+						List<Location> possibleLocations = game.getSailOptions(currPirate, location, move);
 						for (Location loc : possibleLocations) {
 							if (!takenLocations.contains(loc) && (!game.isOccupied(loc) || goanyway)
 									&& (!occupiedTargets.contains(loc))) {
 								takenLocations.add(loc);
 							}
 						}
-						
+
 						Location loc = findSafestLocation(game, takenLocations, game.allEnemyPirates());
-						
+
 						if (loc != null) {
-							game.setSail(pirate1, loc);
-							game.debug("Pirates " + pirate1.getId() + " is going " + move + " steps to " + loc.toString());
+							game.setSail(currPirate, loc);
+							game.debug("Pirates " + currPirate.getId() + " is going " + move + " steps to "
+									+ loc.toString());
 							occupiedTargets.add(loc);
 						}
 					}
@@ -407,25 +428,23 @@ public class MyBot implements PirateBot {
 		return Pirates;
 	}
 
-	public static Treasure findClosestTreasure(PirateGame game, Pirate pirate, List<Treasure> closesTreasure) {
+	public static Treasure findBestTreasure(PirateGame game, Pirate pirate, List<Treasure> closesTreasure) {
 		if (closesTreasure == null)
 			return null;
 
 		Location myShipLocation = pirate.getLocation();
 		Treasure treasure = null;
-		int minDistance = 0;
-
-		if (!closesTreasure.isEmpty()) {
-			treasure = closesTreasure.remove(0);
-			minDistance = game.distance(myShipLocation, treasure.getLocation());
-		}
+		double maxRatio = 0;
 
 		while (!closesTreasure.isEmpty()) {
 			Treasure tempTreasure = closesTreasure.remove(0);
 			int tempDistance = game.distance(myShipLocation, tempTreasure.getLocation());
+			int value = tempTreasure.getValue();
 
-			if (tempDistance < minDistance) {
-				minDistance = tempDistance;
+			double ratio = value / tempDistance;
+
+			if (ratio > maxRatio) {
+				maxRatio = ratio;
 				treasure = tempTreasure;
 			}
 		}
