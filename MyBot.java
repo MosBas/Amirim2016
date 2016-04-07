@@ -13,27 +13,29 @@ import pirates.game.PirateGame;
 public class MyBot implements PirateBot {
 
 	private List<Location> takenLocations;
-	List<Pirate> pirates;
-	int movesBank;
-	List<Location> occupiedTargets;
+	private List<Pirate> pirates;
+	private int movesBank;
+	private List<Location> occupiedTargets;
+	private List<Pirate> attackedEnemies;
 
 	@Override
 	public void doTurn(PirateGame game) {
 		movesBank = game.getActionsPerTurn();
 
 		List<Pirate> alreadyshot = new ArrayList<Pirate>();
-		List<Pirate> l1 = game.myPiratesWithTreasures();
-		List<Pirate> l2 = game.myPiratesWithoutTreasures();
+		List<Pirate> myPiratesWithTreasures = game.myPiratesWithTreasures();
+		List<Pirate> myPiratesWithoutTreasures = game.myPiratesWithoutTreasures();
 
-		for (Pirate p : l2)
+		for (Pirate p : myPiratesWithoutTreasures)
 			if (p.getReloadTurns() != 0)
 				alreadyshot.add(p);
 
-		pirates = new ArrayList<>(l1);
-		pirates.addAll(l2);
+		pirates = new ArrayList<>(myPiratesWithTreasures);
+		pirates.addAll(myPiratesWithoutTreasures);
 
 		takenLocations = new ArrayList<Location>();
 		occupiedTargets = new ArrayList<Location>();
+		attackedEnemies = new ArrayList<>();
 
 		game.debug("Number of pirates is " + game.myPirates().size());
 
@@ -47,6 +49,7 @@ public class MyBot implements PirateBot {
 				boolean goneAway = false;
 				int move = 0;
 				Pirate pirate1 = pirates.remove(0);
+				game.debug("processing pirate " + pirate1.getId());
 				Location location = null;
 				Pirate closestEnemy = findClosestShip(game, pirate1, game.enemySoberPirates());
 				Pirate closestEnemyWithTreasure = findClosestShip(game, pirate1, game.enemyPiratesWithTreasures());
@@ -61,6 +64,7 @@ public class MyBot implements PirateBot {
 				if (enemyToAttack != null) {
 					game.debug("Pirate " + pirate1.getId() + " is attacking enemy " + enemyToAttack.getId());
 					game.attack(pirate1, enemyToAttack);
+					attackedEnemies.add(enemyToAttack);
 				} else if (shouldDefend(pirate1, game)) {
 					game.defend(pirate1);
 					game.debug("Pirate " + pirate1.getId() + " is defending from enemy " + closestEnemy.getId());
@@ -87,11 +91,10 @@ public class MyBot implements PirateBot {
 					}
 
 					else {
-						List<Treasure> closesTreasure = game.treasures();
-						Treasure closestTreasure = findBestTreasure(game, pirate1, closesTreasure);
+						Treasure bestTreasure = findBestTreasure(game, pirate1);
 
-						if (closestTreasure != null) {
-							location = closestTreasure.getLocation();
+						if (bestTreasure != null) {
+							location = bestTreasure.getLocation();
 							game.debug("Pirate " + pirate1.getId() + " is going to get treasure");
 							move = Math.min(Math.min(3, movesBank), game.distance(pirate1.getLocation(), location));
 						}
@@ -104,7 +107,7 @@ public class MyBot implements PirateBot {
 					game.debug("movesBank = " + movesBank);
 				}
 
-				if (location != null) {
+				if (location != null && move > 0) {
 					List<Location> possibleLocations = game.getSailOptions(pirate1, location, move);
 					for (Location loc : possibleLocations) {
 						if (!takenLocations.contains(loc) && (!game.isOccupied(loc) || goneAway)
@@ -202,8 +205,7 @@ public class MyBot implements PirateBot {
 						}
 					}
 					else {
-						List<Treasure> closesTreasure = game.treasures();
-						Treasure closestTreasure = findBestTreasure(game, pirate1, closesTreasure);
+						Treasure closestTreasure = findBestTreasure(game, pirate1);
 						if (closestTreasure != null) {
 							location = closestTreasure.getLocation();
 							move = movesBank - game.myPiratesWithTreasures().size();
@@ -343,28 +345,23 @@ public class MyBot implements PirateBot {
 		return Pirates;
 	}
 
-	public static Treasure findBestTreasure(PirateGame game, Pirate pirate, List<Treasure> closesTreasure) {
-		if (closesTreasure == null)
-			return null;
-
+	private Treasure findBestTreasure(PirateGame game, Pirate pirate) {
 		Location myShipLocation = pirate.getLocation();
-		Treasure treasure = null;
+		Treasure result = null;
 		double maxRatio = 0;
 
-		while (!closesTreasure.isEmpty()) {
-			Treasure tempTreasure = closesTreasure.remove(0);
-			int tempDistance = game.distance(myShipLocation, tempTreasure.getLocation());
-			int value = tempTreasure.getValue();
-
-			double ratio = value / tempDistance;
+		for (Treasure treasure : game.treasures()) {
+			double distance = game.distance(myShipLocation, treasure.getLocation());
+			double value = treasure.getValue();
+			double ratio = value / distance;
 
 			if (ratio > maxRatio) {
 				maxRatio = ratio;
-				treasure = tempTreasure;
+				result = treasure;
 			}
 		}
 
-		return treasure;
+		return result;
 	}
 
 	public static Pirate closestToPowerup(Powerup p, PirateGame game) {
@@ -388,7 +385,11 @@ public class MyBot implements PirateBot {
 
 	private Pirate findEnemyToAttack(Pirate ship, PirateGame game) {
 		for (Pirate enemy : game.enemySoberPirates()) {
-			if (enemy != null && ship.getReloadTurns() == 0 && game.inRange(ship, enemy) && !ship.hasTreasure()) {
+			if (attackedEnemies.contains(enemy)) {
+				continue;
+			}
+			if (enemy != null && ship.getReloadTurns() == 0 && game.inRange(ship, enemy) && !ship.hasTreasure() &&
+					enemy.getDefenseExpirationTurns() == 0) {
 				return enemy;
 			}
 		}
