@@ -19,10 +19,13 @@ public class MyBot implements PirateBot {
 	private List<Pirate> attackedEnemies;
 
 	private Pirate attacker = null;
+	private int stagnationTurns = 0;
+	private int actionsDone;
 
 	@Override
 	public void doTurn(PirateGame game) {
 		movesBank = game.getActionsPerTurn();
+		actionsDone = 0;
 
 		List<Pirate> alreadyShot = new ArrayList<Pirate>();
 		List<Pirate> myPiratesWithTreasures = game.myPiratesWithTreasures();
@@ -67,10 +70,12 @@ public class MyBot implements PirateBot {
 				}
 				if (enemyToAttack != null) {
 					game.debug("Pirate " + pirate.getId() + " is attacking enemy " + enemyToAttack.getId());
+					actionsDone++;
 					game.attack(pirate, enemyToAttack);
 					attackedEnemies.add(enemyToAttack);
 				} else if (shouldDefend(pirate, game)) {
 					game.defend(pirate);
+					actionsDone++;
 					game.debug("Pirate " + pirate.getId() + " is defending from enemy " + closestEnemy.getId());
 				} else {
 					if (pirate.hasTreasure()) {
@@ -122,6 +127,7 @@ public class MyBot implements PirateBot {
 					}
 					Location loc = findSafestLocation(game, takenLocations, game.allEnemyPirates());
 					if (loc != null) {
+						actionsDone++;
 						game.setSail(pirate, loc);
 						game.debug(
 								"Pirate " + pirate.getId() + " is going " + move + " steps to " + loc.toString());
@@ -129,6 +135,14 @@ public class MyBot implements PirateBot {
 						occupiedTargets.add(loc);
 					}
 				}
+			}
+			if (actionsDone == 0 && game.mySoberPirates().size() > 0 && game.myLostPirates().size() == 0) {
+				stagnationTurns++; // e.g the enemies bunkered at our initial locations
+				if (stagnationTurns > 2) {
+					game.setSail(pirates.get(0), pirates.get(0).getInitialLocation());
+				}
+			} else {
+				stagnationTurns = 0;
 			}
 		}
 	}
@@ -392,7 +406,6 @@ public class MyBot implements PirateBot {
 			if (attackedEnemies.contains(enemy)) {
 				continue;
 			}
-			game.debug("MOSHE " + ship.getReloadTurns()+ " " + game.inRange(ship, enemy) + " " + !ship.hasTreasure() + " "  + enemy.getDefenseExpirationTurns());
 			if (enemy != null && ship.getReloadTurns() == 0 && game.inRange(ship, enemy) && !ship.hasTreasure() &&
 					enemy.getDefenseExpirationTurns() == 0) {
 				return enemy;
