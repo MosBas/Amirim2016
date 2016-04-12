@@ -15,7 +15,7 @@ import pirates.game.PirateGame;
 public class MyBot implements PirateBot {
 	
 	private class Turn {
-		public int score;
+		public double score;
 		public State state;
 		public Pirate self;
 		
@@ -25,23 +25,24 @@ public class MyBot implements PirateBot {
 		
 		public Turn(State state) {
 			this.state = state;
+			this.score = 0;
 		}
 		
-		public Turn(Pirate self, State state, int score) { // defend constructor
+		public Turn(Pirate self, State state, double score) { // defend constructor
 			this.self = self;
 			this.state = state;
 			defend = true;
 			this.score = score;
 		}
 		
-		public Turn(Pirate self, State state, Pirate enemy, int score) { // attack constructor
+		public Turn(Pirate self, State state, Pirate enemy, double score) { // attack constructor
 			this.self = self;
 			this.state = state;
 			this.enemy = enemy;
 			this.score = score;
 		}
 		
-		public Turn(Pirate self, State state, Location target, int score) { // move constructor
+		public Turn(Pirate self, State state, Location target, double score) { // move constructor
 			this.self = self;
 			this.state = state;
 			this.target = target;
@@ -70,6 +71,7 @@ public class MyBot implements PirateBot {
 		public int movesBank = 0;
 		public List<Location> occupiedTargets = null;
 		public List<Pirate> attackedEnemies = null;
+		public List<Location> targetTreasures = null;
 		
 		public State() {}
 		
@@ -77,22 +79,25 @@ public class MyBot implements PirateBot {
 			this.movesBank = other.movesBank;
 			this.occupiedTargets = other.occupiedTargets;
 			this.attackedEnemies = other.attackedEnemies;
+			this.targetTreasures = other.targetTreasures;
 		}
 		
 		public State(State other, int newMoves) {
 			this.movesBank = other.movesBank;
 			this.occupiedTargets = other.occupiedTargets;
 			this.attackedEnemies = other.attackedEnemies;
+			this.targetTreasures = other.targetTreasures;
 		}
 		
 		public State(State other, List<Pirate> newAttackedEnemies) {
 			this.movesBank = other.movesBank;
 			this.occupiedTargets = other.occupiedTargets;
 			this.attackedEnemies = newAttackedEnemies;
+			this.targetTreasures = other.targetTreasures;
 		}
 	}
 	
-	private void addMoveTurn(List<Turn> turns, State state, Pirate pirate, Location target, int moves, int score) {
+	private void addMoveTurn(List<Turn> turns, State state, Pirate pirate, Location target, int moves, double score) {
 		if (state.movesBank < moves)
 			return;
 		
@@ -108,23 +113,34 @@ public class MyBot implements PirateBot {
 			}
 		}
 		
-//		Location loc = findSafestLocation(game, untakenLocations, game.allEnemyPirates());
 		if (untakenLocations.size() == 0)
 			return;
 		
 		Location loc = untakenLocations.get(0);
 		
+		boolean isTreasure = false;
+		for (Treasure t : game.treasures())
+			if (t.getLocation().equals(target))
+				isTreasure = true;
+		
 //			actionsDone++;
 		State newState = new State(state);
 		newState.occupiedTargets = new ArrayList<Location>(state.occupiedTargets);
 		newState.occupiedTargets.add(loc);
+		
+		if (isTreasure && !state.targetTreasures.contains(target)) {
+			newState.targetTreasures = new ArrayList<Location>(state.targetTreasures);
+			newState.targetTreasures.add(target);
+		}
+
 		newState.movesBank -= moves;
 		
-		turns.add(new Turn(pirate, newState, loc, score * moves));
+		turns.add(new Turn(pirate, newState, loc, score * moves / (game.distance(loc, target) + 1)));
 	}
 	
 	private List<Turn> allTurns(Pirate pirate, State state) {
 		List<Turn> turns = new ArrayList<Turn>();
+		turns.add(new Turn(state));
 		
 		if (pirate.getTurnsToSober() > 0 || pirate.isLost()) { // drunk or lost
 			return turns;
@@ -153,36 +169,37 @@ public class MyBot implements PirateBot {
 				
 				Location target = pirate.getInitialLocation();
 				addMoveTurn(turns, state, pirate, target, moves, score);
-			}
-			
-			Pirate closestEnemy = findClosestShip(game, pirate, game.enemySoberPirates());
-			if (closestEnemy != null && pirate.getReloadTurns() == 0) {
-				int score = 0; // should depend on moves and distance something
-				Location target = closestEnemy.getInitialLocation();
-				addMoveTurn(turns, state, pirate, target, moves, score);					
-			}
-			
-			Pirate closestEnemyWithTreasure = findClosestShip(game, pirate, game.enemyPiratesWithTreasures());
-			if (!alreadyShot.isEmpty() && pirate.getReloadTurns() != 0
-					&& closestEnemyWithTreasure != null && !pirate.hasTreasure()) {
-				int score = 0; // should depend on moves and distance something
-				Location target = enemyNextLocation(game, closestEnemyWithTreasure, closestEnemyWithTreasure.getInitialLocation());
-				addMoveTurn(turns, state, pirate, target, moves, score);					
-			}
-			
-			Treasure bestTreasure = findBestTreasure(game, pirate);
-			if (bestTreasure != null) {
-				int score = 10; // should depend on moves and distance something
-				Location target = bestTreasure.getLocation();
-				addMoveTurn(turns, state, pirate, target, moves, score);
+			} else if (!pirate.hasTreasure()) {
+				Pirate closestEnemy = findClosestShip(game, pirate, game.enemySoberPirates());
+				if (closestEnemy != null && pirate.getReloadTurns() == 0) {
+					int score = 15; // should depend on moves and distance something
+					Location target = closestEnemy.getLocation();			
+					addMoveTurn(turns, state, pirate, target, moves, score);					
+				}
+				
+				Pirate closestEnemyWithTreasure = findClosestShip(game, pirate, game.enemyPiratesWithTreasures());
+				if (!alreadyShot.isEmpty() && pirate.getReloadTurns() != 0
+						&& closestEnemyWithTreasure != null && !pirate.hasTreasure()) {
+					int score = 30; // should depend on moves and distance something
+					Location target = enemyNextLocation(game, closestEnemyWithTreasure, closestEnemyWithTreasure.getInitialLocation());
+					addMoveTurn(turns, state, pirate, target, moves, score);					
+				}
+				
+				Treasure bestTreasure = findBestTreasure(game, pirate, state);
+				if (bestTreasure != null) {
+					int score = 20; // should depend on moves and distance something
+	
+					Location target = bestTreasure.getLocation();			
+					addMoveTurn(turns, state, pirate, target, moves, score);
+				}
 			}
 		}
 		
 		return turns;
 	}
 	
-	private int totalScore(List<Turn> turns) {
-		int score = 0;
+	private double totalScore(List<Turn> turns) {
+		double score = 0;
 		
 		for (Turn t : turns) {
 			score += t.score;
@@ -198,17 +215,19 @@ public class MyBot implements PirateBot {
 		
 		List<Turn> turns;
 		List<Turn> optimal = null;
-		int optimalScore = -1;
+		double optimalScore = -1;
 		
 		List<Turn> possibleTurns = allTurns(pirates.get(0), state);
-		possibleTurns.add(new Turn(state));
 		
 		for (Turn currTurn : possibleTurns) {
-			List<Turn> subTurns = bestTurns(pirates.subList(1, pirates.size()), currTurn.state, level + 1);
+			List<Pirate> subList = new ArrayList<Pirate>(pirates);
+			subList.remove(0);
+			
+			List<Turn> subTurns = bestTurns(subList, currTurn.state, level + 1);
 			turns = new ArrayList<Turn>(subTurns);
 			turns.add(currTurn);
 			
-			int currScore = totalScore(possibleTurns); 
+			double currScore = totalScore(turns); 
 			if (currScore > optimalScore) {
 				optimal = turns;
 				optimalScore = currScore; 
@@ -228,7 +247,8 @@ public class MyBot implements PirateBot {
 		State state = new State();
 		state.movesBank = game.getActionsPerTurn();
 		state.occupiedTargets = new ArrayList<Location>();
-		state.attackedEnemies = new ArrayList<>();
+		state.attackedEnemies = new ArrayList<Pirate>();
+		state.targetTreasures = new ArrayList<Location>();
 		
 		alreadyShot = new ArrayList<Pirate>();
 		List<Pirate> myPiratesWithTreasures = game.myPiratesWithTreasures();
@@ -242,6 +262,7 @@ public class MyBot implements PirateBot {
 		pirates.addAll(myPiratesWithoutTreasures);
 		
 		List<Turn> gameTurns = bestTurns(pirates, state, 0);
+		game.debug("final score: " + totalScore(gameTurns));
 		for (Turn t : gameTurns)
 			execTurn(game, t);
 	}
@@ -350,12 +371,22 @@ public class MyBot implements PirateBot {
 		return result;
 	}
 
-	private Treasure findBestTreasure(PirateGame game, Pirate pirate) {
+	private Treasure findBestTreasure(PirateGame game, Pirate pirate, State state) {
 		Location myShipLocation = pirate.getLocation();
 		Treasure result = null;
 		double maxRatio = 0;
 
 		for (Treasure treasure : game.treasures()) {
+			if (state == null) {
+				game.debug("state is null");
+			}
+			
+			if (state.targetTreasures == null) {
+				game.debug("target treasures is null");
+			}
+			if (state.targetTreasures.contains(treasure.getLocation()))
+				continue;
+			
 			double distance = game.distance(myShipLocation, treasure.getLocation());
 			double value = treasure.getValue();
 			double ratio = value / distance;
