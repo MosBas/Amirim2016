@@ -72,6 +72,7 @@ public class MyBot implements PirateBot {
 		public List<Location> occupiedTargets = null;
 		public List<Pirate> attackedEnemies = null;
 		public List<Location> targetTreasures = null;
+		public Pirate attacker = null;
 		
 		public State() {}
 		
@@ -82,18 +83,9 @@ public class MyBot implements PirateBot {
 			this.targetTreasures = other.targetTreasures;
 		}
 		
-		public State(State other, int newMoves) {
-			this.movesBank = other.movesBank;
-			this.occupiedTargets = other.occupiedTargets;
-			this.attackedEnemies = other.attackedEnemies;
-			this.targetTreasures = other.targetTreasures;
-		}
-		
 		public State(State other, List<Pirate> newAttackedEnemies) {
-			this.movesBank = other.movesBank;
-			this.occupiedTargets = other.occupiedTargets;
+			this(other);
 			this.attackedEnemies = newAttackedEnemies;
-			this.targetTreasures = other.targetTreasures;
 		}
 	}
 	
@@ -164,6 +156,22 @@ public class MyBot implements PirateBot {
 		}
 		
 		for (int moves = state.movesBank; moves >= 1; --moves) {
+			if (pirate.getId() == 0) {
+				int score = 1000000;
+				List<Pirate> enemies = game.enemyPiratesWithTreasures().size() > 0 ? game.enemyPiratesWithTreasures() : game.enemyPirates();
+				Location enemyBase = enemies.get(0).getInitialLocation();
+				
+				
+				if (pirate.getLocation().equals(enemyBase)) {
+					List<Pirate> newAttackedEnemies = new ArrayList<Pirate>(state.attackedEnemies);
+					newAttackedEnemies.add(enemyToAttack);
+					
+					turns.add(new Turn(pirate, new State(state, newAttackedEnemies), enemyToAttack, score));
+				} else {
+					addMoveTurn(turns, state, pirate, enemyBase, moves, score);
+				}
+			}
+			
 			if (pirate.hasTreasure() && moves <= pirate.getCarryTreasureSpeed()) {
 				int score = 1000; // should depend on moves
 				
